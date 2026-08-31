@@ -1,9 +1,10 @@
 import * as cheerio from 'cheerio';
+import type { Element } from 'domhandler';
 import type { Offer, SourceResult, RetrievalMethod } from './types';
 import { SOURCES, parsePrice, type SourceDefinition, type SourceStrategy } from './sources';
 import { dedupeOffers } from './match';
 
-const UA = 'ComparisBot/0.5 (+https://github.com/madmaxmehdi44/comparis)';
+const UA = 'ComparisBot/0.6 (+https://github.com/madmaxmehdi44/comparis)';
 const MAX_OFFERS = 30;
 const BLOCKED_STATUSES = new Set([401, 403, 406, 409, 429, 451]);
 
@@ -32,20 +33,16 @@ function jsonLdOffers(raw: unknown, source: SourceDefinition, strategy: SourceSt
     if (!node || typeof node !== 'object') continue;
     const record = node as Record<string, unknown>;
     const graph = Array.isArray(record['@graph']) ? record['@graph'] : [node];
-
     for (const item of graph) {
       if (!item || typeof item !== 'object') continue;
       const product = item as Record<string, unknown>;
       if (!isProductType(product['@type']) || typeof product.name !== 'string') continue;
-
       const rawOffers = Array.isArray(product.offers) ? product.offers : [product.offers];
       for (const rawOffer of rawOffers) {
         if (!rawOffer || typeof rawOffer !== 'object') continue;
         const offer = rawOffer as Record<string, unknown>;
-        const rawPrice = String(offer.price ?? offer.lowPrice ?? '');
-        const price = parsePrice(rawPrice);
+        const price = parsePrice(String(offer.price ?? offer.lowPrice ?? ''));
         if (price == null) continue;
-
         out.push({
           sourceId: source.id,
           source: source.name,
@@ -57,38 +54,71 @@ function jsonLdOffers(raw: unknown, source: SourceDefinition, strategy: SourceSt
           observedAt,
           status: 'fresh',
           method: strategy.method as RetrievalMethod,
-          confidence: strategy.method === 'search' ? 0.78 : 0.98,
+          confidence: strategy.kind === 'search-engine' ? 0.78 : 0.98,
         });
       }
     }
   }
-
   return out;
 }
 
-function extractOffers(html: string, source: SourceDefinition, strategy: SourceStrategy, url: string, observedAt: string): Offer[] {
+function extractPageOffers(html: string, source: SourceDefinition, strategy: SourceStrategy, url: string, observedAt: string): Offer[] {
   const $ = cheerio.load(html);
   const out: Offer[] = [];
 
   $('script[type="application/ld+json"]').each((_, el) => {
-    try {
-      out.push(...jsonLdOffers(JSON.parse($(el).text()), source, strategy, url, observedAt));
-    } catch {
-      // Continue with DOM extraction.
-    }
+    try { out.push(...jsonLdOffers(JSON.parse($(el).text()), source, strategy, url, observedAt)); } catch { /* fallback */ }
   });
 
   const seen = new Set(out.map((x) => `${x.title}|${x.price}|${x.url}`));
-  const addAnchor = (a: cheerio.Element) => {
+  $('a[href]').each((_, a) => {
     if (out.length >= MAX_OFFERS) return;
-    const title = $(a).text().replace(/\s+/g, ' ').trim();
-    if (title.length < 8) return;
-    const price = parsePrice(title);
+    const text = $(a).text().replace(/\s+/g, ' ').trim();
+    if (text.length < 8) return;
+    const price = parsePrice(text);
     const href = absoluteUrl(url, $(a).attr('href'));
     if (price == null || price < 10_000 || !href) return;
-    const key = `${title}|${price}|${href}`;
+    const key = `${text}|${price}|${href}`;
     if (seen.has(key)) return;
     seen.add(key);
+    out.push({
+      sourceId: source.id,
+      source: source.name,
+      url: href,
+      title: text,
+      price,
+      currency: 'IRT',
+      availability: 'unknown',
+      observedAt,
+      status: 'fresh',
+      method: strategy.method as RetrievalMethod,
+      confidence: strategy.kind === 'search-engine' ? 0.55 : 0.60,
+    });
+  });
+  return dedupeOffers(out).slice(0, MAX_OFFERS);
+}
+
+function extractIndexedOffers(html: string, source: SourceDefinition, strategy: SourceStrategy, engineUrl: string, query: string, observedAt: string): Offer[] {
+  const $ = cheerio.load(html);
+  const out: Offer[] = [];
+  const host = new URL(source.strategies[0].buildUrl(query)).hostname.replace(/^www\./, '');
+
+  $('a[href]').each((_, a: Element) => {
+    if (out.length >= MAX_OFFERS) return;
+    const hrefRaw = $(a).attr('href');
+    const href = absoluteUrl(engineUrl, hrefRaw);
+    if (!href) return;
+    let target: URL;
+    try { target = new URL(href); } catch { return; }
+    if (!target.hostname.replace(/^www\./, '').endsWith(host)) return;
+
+    const containerText = $(a).closest('div,li,article').text().replace(/\s+/g, ' ').trim();
+    const text = containerText || $(a).text().replace(/\s+/g, ' ').trim();
+    if (text.length < 10) return;
+    const price = parsePrice(text);
+    if (price == null || price < 10_000) return;
+
+    const title = $(a).text().replace(/\s+/g, ' ').trim() || text.slice(0, 180);
     out.push({
       sourceId: source.id,
       source: source.name,
@@ -99,20 +129,16 @@ function extractOffers(html: string, source: SourceDefinition, strategy: SourceS
       availability: 'unknown',
       observedAt,
       status: 'fresh',
-      method: strategy.method as RetrievalMethod,
-      confidence: strategy.method === 'search' ? 0.55 : 0.60,
+      method: 'search',
+      confidence: 0.70,
     });
-  };
-
-  $('a[href]').each((_, a) => addAnchor(a));
-  if (out.length === 0) $('body *').each((_, el) => addAnchor(el));
+  });
 
   return dedupeOffers(out).slice(0, MAX_OFFERS);
 }
 
 function classifyFailure(status: number): SourceResult['status'] {
-  if (BLOCKED_STATUSES.has(status)) return 'blocked';
-  return 'failed';
+  return BLOCKED_STATUSES.has(status) ? 'blocked' : 'failed';
 }
 
 async function tryStrategy(source: SourceDefinition, strategy: SourceStrategy, query: string): Promise<SourceResult> {
@@ -132,30 +158,29 @@ async function tryStrategy(source: SourceDefinition, strategy: SourceStrategy, q
         'accept-language': 'fa-IR,fa;q=0.9,en;q=0.6',
       },
     });
-
+    const latencyMs = Date.now() - started;
     if (!response.ok) {
-      return {
-        id: source.id, name: source.name, status: classifyFailure(response.status), method: strategy.method,
-        offers: [], latencyMs: Date.now() - started, error: `HTTP ${response.status} via ${strategy.name}`,
-      };
+      return { id: source.id, name: source.name, status: classifyFailure(response.status), method: strategy.method, offers: [], latencyMs, error: `HTTP ${response.status} via ${strategy.name}` };
     }
 
     const html = await response.text();
-    const offers = extractOffers(html, source, strategy, response.url || url, new Date().toISOString());
-    if (!offers.length) {
-      return {
-        id: source.id, name: source.name, status: 'failed', method: strategy.method,
-        offers: [], latencyMs: Date.now() - started, error: `no offers via ${strategy.name}`,
-      };
-    }
+    const observedAt = new Date().toISOString();
+    const offers = strategy.kind === 'search-engine'
+      ? extractIndexedOffers(html, source, strategy, response.url || url, query, observedAt)
+      : extractPageOffers(html, source, strategy, response.url || url, observedAt);
 
-    return { id: source.id, name: source.name, status: 'fresh', method: strategy.method, offers, latencyMs: Date.now() - started };
+    if (!offers.length) {
+      return { id: source.id, name: source.name, status: 'failed', method: strategy.method, offers: [], latencyMs, error: `no offers via ${strategy.name}` };
+    }
+    return { id: source.id, name: source.name, status: 'fresh', method: strategy.method, offers, latencyMs };
   } catch (error) {
     return {
-      id: source.id, name: source.name,
+      id: source.id,
+      name: source.name,
       status: error instanceof Error && error.name === 'AbortError' ? 'stale' : 'failed',
       method: strategy.method,
-      offers: [], latencyMs: Date.now() - started,
+      offers: [],
+      latencyMs: Date.now() - started,
       error: error instanceof Error ? `${error.message} via ${strategy.name}` : `fetch failed via ${strategy.name}`,
     };
   } finally {
@@ -167,20 +192,14 @@ export async function crawlSource(source: SourceDefinition, query: string): Prom
   const started = Date.now();
   const attempts: string[] = [];
   let last: SourceResult | undefined;
-
   for (const strategy of source.strategies) {
     attempts.push(strategy.name);
     const result = await tryStrategy(source, strategy, query);
     if (result.offers.length > 0) {
-      return {
-        ...result,
-        latencyMs: Date.now() - started,
-        error: attempts.length > 1 ? `fallback chain: ${attempts.join(' → ')}` : undefined,
-      };
+      return { ...result, latencyMs: Date.now() - started, error: attempts.length > 1 ? `fallback chain: ${attempts.join(' → ')}` : undefined };
     }
     last = result;
   }
-
   return {
     id: source.id,
     name: source.name,
