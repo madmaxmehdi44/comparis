@@ -1,38 +1,55 @@
 # Comparis
 
-Real-time product discovery and price comparison for Iranian stores.
+Comparis is a real-time product discovery and price-comparison MVP for Iranian sources.
 
-## MVP
+## What is implemented
 
-- Parallel live fetch across Iranian sources
-- Fault isolation per source
-- JSON-LD extraction with DOM fallback
-- Persian/Arabic digit normalization
-- Price normalization to toman
-- Fresh/blocked/failed source states
-- Extraction confidence and observation timestamps
-- Next.js App Router API + responsive RTL UI
+- Parallel source crawling with independent timeouts.
+- Fault isolation: one blocked/failed source does not fail the search.
+- Explicit `fresh`, `blocked`, and `failed` source states.
+- JSON-LD Product/Offer extraction with DOM fallback.
+- Persian/Arabic digit normalization.
+- Toman/Rial-aware price normalization.
+- Deterministic product-title normalization and offer deduplication.
+- Observation timestamps and extraction confidence.
+- Source-by-source Server-Sent Events at `/api/search/stream`.
+- Responsive Persian RTL interface with live source status.
+- Fixed source registry; there is no user-controlled URL fetching, which avoids an SSRF surface in the search API.
+- No CAPTCHA, Cloudflare, or anti-bot bypass logic.
 
-## Run
+## Run locally
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open `http://localhost:3000` and search for a product such as `RTX 5070 Ti 16GB`.
+Open `http://localhost:3000` and search for a product, for example:
 
-## Architecture
+```text
+RTX 5070 Ti 16GB
+```
 
-`query -> source registry -> parallel fetch -> extraction -> normalization -> normalized offers -> live UI`
+## API
 
-The crawler does not attempt to bypass CAPTCHA or anti-bot controls. A blocked source is isolated and explicitly reported. Browser rendering is intentionally a separate future worker tier rather than the default request path.
+```text
+GET /api/search?q=<product>
+GET /api/search/stream?q=<product>
+```
 
-## Roadmap
+The stream emits `start`, `source`, and `done` events. The UI updates immediately as each source completes.
 
-1. Add per-domain adapters and selector tests.
-2. Add Redis/BullMQ worker pool for scheduled refresh and browser rendering.
-3. Add canonical product/entity resolution using SKU/MPN/GTIN before semantic matching.
-4. Add PostgreSQL price history and freshness policies.
-5. Add SSE streaming so results appear source-by-source.
-6. Add source health metrics and adaptive crawl policies.
+## Resilience model
+
+The crawler intentionally prefers cheap HTTP retrieval. Browser rendering is a separate worker tier for sources that genuinely require JavaScript and should not be the default path. A blocked source is reported as blocked rather than being silently represented as fresh data.
+
+Product matching in this MVP is deliberately conservative. Exact identifiers such as GTIN/MPN/SKU are not invented when absent. The current deterministic matcher normalizes titles and deduplicates equivalent offers; probabilistic/entity resolution is reserved for the worker/database stage.
+
+## Next production layer
+
+1. Redis/BullMQ for scheduled refresh, retry, backoff, concurrency and browser workers.
+2. PostgreSQL for canonical products, offers, observations and price history.
+3. Per-domain adapters with fixtures and regression tests.
+4. Source health metrics and adaptive freshness policies.
+5. Identifier-first entity resolution (GTIN/MPN/SKU) followed by constrained semantic matching.
+6. Search discovery for additional merchants without allowing arbitrary user URLs.
