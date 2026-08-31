@@ -27,5 +27,11 @@ export function parsePrice(text: string): number | undefined {
   const compact = match[0].replace(/[\s,]/g, '');
   const value = Number(compact);
   if (!Number.isFinite(value) || value <= 0) return undefined;
+
+  const lowered = normalized.toLowerCase();
+  const explicitlyToman = /تومان|تومن|toman/.test(lowered);
+  const explicitlyRial = /ریال|rial|irr/.test(lowered);
+  if (explicitlyRial && !explicitlyToman) return Math.round(value / 10);
+  if (explicitlyToman) return Math.round(value);
   return value > 100_000 ? Math.round(value / 10) : Math.round(value);
 }
