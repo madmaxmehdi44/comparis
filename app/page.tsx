@@ -1,7 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useRef, useState } from 'react';
-import type { Offer, SearchResponse, SourceResult } from '@/lib/types';
+import type { ComparisonGroup, Offer, SearchResponse, SourceResult } from '@/lib/types';
 
 const toman = (n?: number) => n == null ? '—' : new Intl.NumberFormat('fa-IR').format(n) + ' تومان';
 const statusText: Record<string, string> = { fresh: 'زنده', blocked: 'مسدود', failed: 'خطا', stale: 'قدیمی' };
@@ -66,12 +66,38 @@ export default function Home() {
     }
   }
 
+  const groups = data?.groups ?? [];
+  const renderGroup = (group: ComparisonGroup) => {
+    const best = group.offers.find((offer) => offer.price !== undefined);
+    return (
+      <article className="groupcard" key={group.key}>
+        <div className="grouphead">
+          <div>
+            <div className="source">محصول تطبیق‌یافته · اطمینان {Math.round(group.confidence * 100)}٪</div>
+            <div className="grouptitle">{group.title}</div>
+            <div className="meta">{group.sellerCount} منبع · کمترین قیمت {toman(group.stats.min)} · میانگین {toman(group.stats.average)}</div>
+          </div>
+          <div className="bestprice">{toman(best?.price)}</div>
+        </div>
+        {group.stats.savings !== undefined && group.stats.savings > 0 && <div className="saving">اختلاف کمترین و بیشترین قیمت: {toman(group.stats.savings)}</div>}
+        <div className="offers">
+          {group.offers.map((offer, index) => (
+            <a className="offer" href={offer.url} target="_blank" rel="noreferrer" key={`${offer.sourceId}-${offer.url}-${index}`}>
+              <span><b>{offer.source}</b><small>{statusText[offer.status]} · {Math.round(offer.confidence * 100)}٪</small></span>
+              <strong>{toman(offer.price)}</strong>
+            </a>
+          ))}
+        </div>
+      </article>
+    );
+  };
+
   return (
     <main className="shell">
       <header className="hero">
         <div className="eyebrow">PRICE INTELLIGENCE</div>
         <h1>Comparis</h1>
-        <p>قیمت یک محصول را هم‌زمان از منابع ایرانی جمع‌آوری و استاندارد می‌کنیم.</p>
+        <p>قیمت یک محصول را هم‌زمان از منابع ایرانی جمع‌آوری، تطبیق و مقایسه می‌کنیم.</p>
       </header>
 
       <form className="search" onSubmit={search}>
@@ -79,39 +105,20 @@ export default function Home() {
         <button disabled={loading}>{loading ? 'در حال جمع‌آوری…' : 'جست‌وجوی زنده'}</button>
       </form>
 
-      {sources.length > 0 && (
-        <section className="sourcebar" aria-live="polite">
-          {sources.map((source) => <div className="sourcepill" key={source.id}>
-            <span className={`dot ${statusClass[source.status]}`} />
-            <b>{source.name}</b>
-            <span>{statusText[source.status]}</span>
-            <small>{source.latencyMs}ms</small>
-          </div>)}
+      {sources.length > 0 && <section className="sourcebar" aria-live="polite">
+        {sources.map((source) => <div className="sourcepill" key={source.id}>
+          <span className={`dot ${statusClass[source.status]}`} /><b>{source.name}</b><span>{statusText[source.status]}</span><small>{source.latencyMs}ms</small>
+        </div>)}
+      </section>}
+
+      {loading && <div className="status"><span className="live"><i />در حال بررسی منابع</span><span>هر منبع مستقل است.</span></div>}
+
+      {data && <>
+        <div className="status"><span>{new Intl.NumberFormat('fa-IR').format(groups.length)} محصول تطبیق‌یافته · {new Intl.NumberFormat('fa-IR').format(data.results.length)} پیشنهاد</span><span>{new Date(data.completedAt).toLocaleTimeString('fa-IR')}</span></div>
+        <section className="grid">
+          {groups.length ? groups.map(renderGroup) : <div className="empty">در این چرخه هیچ محصول قابل تطبیقی پیدا نشد.</div>}
         </section>
-      )}
-
-      {loading && <div className="status"><span className="live"><i />در حال بررسی منابع</span><span>هر منبع مستقل است؛ شکست یک منبع بقیه را متوقف نمی‌کند.</span></div>}
-
-      {data && (
-        <>
-          <div className="status">
-            <span>{new Intl.NumberFormat('fa-IR').format(data.results.length)} پیشنهاد استخراج‌شده</span>
-            <span>{new Date(data.completedAt).toLocaleTimeString('fa-IR')}</span>
-          </div>
-          <section className="grid">
-            {data.results.length ? data.results.map((x, i) => (
-              <article className="card" key={`${x.sourceId}-${x.url}-${i}`}>
-                <div>
-                  <div className="source">{x.source} · <span className={statusClass[x.status]}>{statusText[x.status]}</span></div>
-                  <a className="title" href={x.url} target="_blank" rel="noreferrer">{x.title}</a>
-                  <div className="meta">مشاهده {new Date(x.observedAt).toLocaleTimeString('fa-IR')} · اطمینان {Math.round(x.confidence * 100)}٪ · روش {x.method}</div>
-                </div>
-                <div className="price">{toman(x.price)}</div>
-              </article>
-            )) : <div className="empty">در این چرخه هیچ پیشنهاد قابل استخراجی برنگشت.</div>}
-          </section>
-        </>
-      )}
+      </>}
     </main>
   );
 }
