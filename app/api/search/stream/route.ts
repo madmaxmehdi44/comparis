@@ -1,12 +1,13 @@
 import { NextRequest } from 'next/server';
 import { SOURCES } from '@/lib/sources';
 import { crawlSource } from '@/lib/crawler';
+import { dedupeOffers } from '@/lib/match';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 25;
 
-function event(event: string, data: unknown) {
-  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+function event(name: string, data: unknown) {
+  return `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
 export async function GET(req: NextRequest) {
@@ -25,12 +26,12 @@ export async function GET(req: NextRequest) {
         send('source', result);
         return result;
       });
-
       const results = await Promise.all(jobs);
+
       send('done', {
         query,
         sources: results,
-        results: results.flatMap((x) => x.offers).sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity)),
+        results: dedupeOffers(results.flatMap((x) => x.offers)),
         completedAt: new Date().toISOString(),
       });
       controller.close();
