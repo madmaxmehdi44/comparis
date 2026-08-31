@@ -69,17 +69,8 @@ export function groupOffers(offers: Offer[]): ProductGroup[] {
       best.offers.push(offer);
       best.confidence = Math.min(best.confidence, bestScore);
     } else {
-      groups.push({
-        key: canonicalTitle(offer.title),
-        title: offer.title,
-        offers: [offer],
-        confidence: offer.confidence,
-        identity: identity(offer.title),
-      });
+      groups.push({ key: canonicalTitle(offer.title), title: offer.title, offers: [offer], confidence: offer.confidence, identity: identity(offer.title) });
     }
   }
-  return groups.map((group) => ({
-    ...group,
-    offers: [...group.offers].sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity)),
-  }));
+  return groups.map((group) => ({ ...group, offers: [...group.offers].sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity)) }));
 }
