@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { SOURCES } from '@/lib/sources';
 import { crawlSource } from '@/lib/crawler';
-import { dedupeOffers } from '@/lib/match';
+import { buildComparisons } from '@/lib/comparison';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 25;
@@ -27,11 +27,13 @@ export async function GET(req: NextRequest) {
         return result;
       });
       const results = await Promise.all(jobs);
+      const offers = results.flatMap((x) => x.offers);
 
       send('done', {
         query,
         sources: results,
-        results: dedupeOffers(results.flatMap((x) => x.offers)),
+        groups: buildComparisons(offers),
+        results: offers.sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity)),
         completedAt: new Date().toISOString(),
       });
       controller.close();
