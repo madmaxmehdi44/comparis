@@ -25,9 +25,31 @@ export interface SourceResult {
   error?: string;
 }
 
+export interface ComparisonGroup {
+  key: string;
+  title: string;
+  offers: Offer[];
+  confidence: number;
+  identity: {
+    brand?: string;
+    model?: string;
+    variant?: string;
+    capacity?: string;
+    sku?: string;
+  };
+  stats: {
+    min?: number;
+    max?: number;
+    average?: number;
+    savings?: number;
+  };
+  sellerCount: number;
+}
+
 export interface SearchResponse {
   query: string;
   results: Offer[];
+  groups?: ComparisonGroup[];
   sources: SourceResult[];
   completedAt: string;
 }
