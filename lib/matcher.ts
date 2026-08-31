@@ -1,5 +1,5 @@
 import { canonicalTitle } from './normalize';
-import type { Offer } from './source-types';
+import type { Offer } from './types';
 
 export interface ProductIdentity {
   brand?: string;
@@ -28,7 +28,7 @@ function identity(title: string): ProductIdentity {
   const sku = title.match(SKU_RE)?.[0]?.toUpperCase();
   const capacity = normalized.match(CAPACITY_RE)?.[0];
   const words = normalized.split(' ').filter((x) => x.length > 1 && !STOP.has(x));
-  return { brand, sku, capacity, model: words.slice(0, 6).join(' ') };
+  return { brand, sku, capacity, model: words.slice(0, 8).join(' ') };
 }
 
 function tokens(value: string): Set<string> {
@@ -41,13 +41,13 @@ function jaccard(a: Set<string>, b: Set<string>): number {
   return intersection / Math.max(1, new Set([...a, ...b]).size);
 }
 
-function scoreOffer(a: Offer, b: ProductGroup): number {
-  const left = identity(a.title);
-  const right = b.identity;
+function scoreOffer(offer: Offer, group: ProductGroup): number {
+  const left = identity(offer.title);
+  const right = group.identity;
   if (left.sku && right.sku && left.sku === right.sku) return 1;
   if (left.brand && right.brand && left.brand !== right.brand) return 0;
   if (left.capacity && right.capacity && left.capacity !== right.capacity) return 0;
-  const semantic = jaccard(tokens(a.title), tokens(b.title));
+  const semantic = jaccard(tokens(offer.title), tokens(group.title));
   const brandBonus = left.brand && right.brand && left.brand === right.brand ? 0.12 : 0;
   const capacityBonus = left.capacity && right.capacity && left.capacity === right.capacity ? 0.08 : 0;
   return Math.min(1, semantic + brandBonus + capacityBonus);
@@ -78,5 +78,8 @@ export function groupOffers(offers: Offer[]): ProductGroup[] {
       });
     }
   }
-  return groups;
+  return groups.map((group) => ({
+    ...group,
+    offers: [...group.offers].sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity)),
+  }));
 }
