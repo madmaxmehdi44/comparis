@@ -6,6 +6,7 @@ export interface SourceStrategy {
   method: RetrievalMethod;
   timeoutMs: number;
   buildUrl: (query: string) => string;
+  kind: 'site' | 'search-engine';
 }
 
 export interface SourceDefinition {
@@ -15,28 +16,29 @@ export interface SourceDefinition {
 }
 
 const q = (query: string) => encodeURIComponent(query.trim());
+const normalized = (query: string) => q(query.replace(/[\-_/]+/g, ' '));
+
+function siteStrategies(siteSearch: (query: string) => string, site: string): readonly SourceStrategy[] {
+  return [
+    { name: 'direct-search', method: 'http', timeoutMs: 6500, kind: 'site', buildUrl: siteSearch },
+    { name: 'normalized-search', method: 'http', timeoutMs: 6500, kind: 'site', buildUrl: (x) => siteSearch(decodeURIComponent(normalized(x))) },
+    { name: 'google-index', method: 'search', timeoutMs: 7500, kind: 'search-engine', buildUrl: (x) => `https://www.google.com/search?q=${q(`site:${site} ${x}`)}` },
+    { name: 'bing-index', method: 'search', timeoutMs: 7500, kind: 'search-engine', buildUrl: (x) => `https://www.bing.com/search?q=${q(`site:${site} ${x}`)}` },
+  ] as const;
+}
 
 export const SOURCES: readonly SourceDefinition[] = [
   {
-    id: 'torob', name: 'ترب', strategies: [
-      { name: 'search', method: 'http', timeoutMs: 6500, buildUrl: (x) => `https://torob.com/search/?query=${q(x)}` },
-      { name: 'search-normalized', method: 'http', timeoutMs: 6500, buildUrl: (x) => `https://torob.com/search/?query=${q(x.replace(/[\-_/]+/g, ' '))}` },
-      { name: 'indexed-search', method: 'search', timeoutMs: 7500, buildUrl: (x) => `https://www.google.com/search?q=${q(`site:torob.com ${x}`)}` },
-    ],
+    id: 'torob', name: 'ترب',
+    strategies: siteStrategies((x) => `https://torob.com/search/?query=${q(x)}`, 'torob.com'),
   },
   {
-    id: 'digikala', name: 'دیجی‌کالا', strategies: [
-      { name: 'search', method: 'http', timeoutMs: 6500, buildUrl: (x) => `https://www.digikala.com/search/?q=${q(x)}` },
-      { name: 'search-normalized', method: 'http', timeoutMs: 6500, buildUrl: (x) => `https://www.digikala.com/search/?q=${q(x.replace(/[\-_/]+/g, ' '))}` },
-      { name: 'indexed-search', method: 'search', timeoutMs: 7500, buildUrl: (x) => `https://www.google.com/search?q=${q(`site:digikala.com ${x}`)}` },
-    ],
+    id: 'digikala', name: 'دیجی‌کالا',
+    strategies: siteStrategies((x) => `https://www.digikala.com/search/?q=${q(x)}`, 'digikala.com'),
   },
   {
-    id: 'emalls', name: 'ایمالز', strategies: [
-      { name: 'search', method: 'http', timeoutMs: 6500, buildUrl: (x) => `https://emalls.ir/Search.aspx?Search=${q(x)}` },
-      { name: 'search-normalized', method: 'http', timeoutMs: 6500, buildUrl: (x) => `https://emalls.ir/Search.aspx?Search=${q(x.replace(/[\-_/]+/g, ' '))}` },
-      { name: 'indexed-search', method: 'search', timeoutMs: 7500, buildUrl: (x) => `https://www.google.com/search?q=${q(`site:emalls.ir ${x}`)}` },
-    ],
+    id: 'emalls', name: 'ایمالز',
+    strategies: siteStrategies((x) => `https://emalls.ir/Search.aspx?Search=${q(x)}`, 'emalls.ir'),
   },
 ] as const;
 
