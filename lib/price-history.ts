@@ -1,4 +1,4 @@
-import type { Offer } from './source-types';
+import type { Offer } from './types';
 
 export interface PriceObservation {
   productKey: string;
@@ -10,7 +10,7 @@ export interface PriceObservation {
 
 export function observationsFromOffers(productKey: string, offers: Offer[]): PriceObservation[] {
   return offers.flatMap((offer) =>
-    offer.price && offer.currency
+    offer.price != null && offer.currency
       ? [{ productKey, sourceId: offer.sourceId, price: offer.price, currency: offer.currency, observedAt: offer.observedAt }]
       : [],
   );
