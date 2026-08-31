@@ -1,17 +1,31 @@
-export const SOURCES = [
-  { id:'torob', name:'ترب', buildUrl:(q:string)=>`https://torob.com/search/?query=${encodeURIComponent(q)}` },
-  { id:'digikala', name:'دیجی‌کالا', buildUrl:(q:string)=>`https://www.digikala.com/search/?q=${encodeURIComponent(q)}` },
-  { id:'emalls', name:'ایمالز', buildUrl:(q:string)=>`https://emalls.ir/Search.aspx?Search=${encodeURIComponent(q)}` },
-] as const;
+export type SourceId = 'torob' | 'digikala' | 'emalls';
 
-export function normalizeDigits(input:string){
-  return input.replace(/[۰-۹]/g,c=>String('۰۱۲۳۴۵۶۷۸۹'.indexOf(c))).replace(/[,،]/g,'');
+export interface SourceDefinition {
+  id: SourceId;
+  name: string;
+  method: 'http';
+  timeoutMs: number;
+  buildUrl: (query: string) => string;
 }
 
-export function parsePrice(text:string):number|undefined{
-  const n=normalizeDigits(text).match(/\d[\d\s.]*/)?.[0]?.replace(/[\s.]/g,'');
-  if(!n) return undefined;
-  const value=Number(n);
-  if(!Number.isFinite(value)) return undefined;
-  return value > 100000 ? Math.round(value/10) : value;
+export const SOURCES: readonly SourceDefinition[] = [
+  { id: 'torob', name: 'ترب', method: 'http', timeoutMs: 6500, buildUrl: (q) => `https://torob.com/search/?query=${encodeURIComponent(q)}` },
+  { id: 'digikala', name: 'دیجی‌کالا', method: 'http', timeoutMs: 6500, buildUrl: (q) => `https://www.digikala.com/search/?q=${encodeURIComponent(q)}` },
+  { id: 'emalls', name: 'ایمالز', method: 'http', timeoutMs: 6500, buildUrl: (q) => `https://emalls.ir/Search.aspx?Search=${encodeURIComponent(q)}` },
+] as const;
+
+export function normalizeDigits(input: string): string {
+  return input
+    .replace(/[۰-۹]/g, (c) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(c)))
+    .replace(/[٠-٩]/g, (c) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(c)));
+}
+
+export function parsePrice(text: string): number | undefined {
+  const normalized = normalizeDigits(text).replace(/[٬،]/g, ',');
+  const match = normalized.match(/\d[\d\s.,]*/);
+  if (!match) return undefined;
+  const compact = match[0].replace(/[\s,]/g, '');
+  const value = Number(compact);
+  if (!Number.isFinite(value) || value <= 0) return undefined;
+  return value > 100_000 ? Math.round(value / 10) : Math.round(value);
 }
