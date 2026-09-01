@@ -1,16 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as cheerio from 'cheerio';
+import { qualifyCandidate, rankSources, type CandidateSource } from '@/lib/source-ranking';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 30;
+export const maxDuration = 60;
 
-const UA = 'ComparisSourceDiscovery/1.0';
+const UA = 'ComparisSourceDiscovery/2.0';
 const BLOCKED_HOSTS = new Set(['localhost', '127.0.0.1', '0.0.0.0']);
-const KNOWN = new Set([
-  'torob.com', 'digikala.com', 'emalls.ir', 'fafait.net', 'markazi.co', 'radincomputer.com',
-  'darja.online', 'rightech.ir', 'rayanehonline.com', 'technolife.com', 'meghdadit.com',
-  'lioncomputer.com', 'pcmarkazi.com', 'irtechland.com', 'pasargadit.com', 'shopmit.ir',
-]);
+const SEARCH_HOSTS = new Set(['google.com', 'www.google.com', 'bing.com', 'www.bing.com', 'youtube.com', 'www.youtube.com']);
 
 function hostOf(raw: string) {
   try { return new URL(raw).hostname.toLowerCase().replace(/^www\./, ''); } catch { return ''; }
@@ -18,24 +15,27 @@ function hostOf(raw: string) {
 
 function domainOk(raw: string) {
   const host = hostOf(raw);
-  return !!host && !BLOCKED_HOSTS.has(host) && !host.endsWith('.local') && !/^\d+(?:\.\d+){3}$/.test(host) && !host.includes(':');
+  return !!host && !BLOCKED_HOSTS.has(host) && !host.endsWith('.local') && !/^\d+(?:\.\d+){3}$/.test(host) && !host.includes(':') && !SEARCH_HOSTS.has(host);
 }
 
 function titleFromUrl(raw: string) {
-  const host = hostOf(raw);
-  return host.split('.')[0]?.replace(/[-_]+/g, ' ') || raw;
+  return hostOf(raw).split('.')[0]?.replace(/[-_]+/g, ' ') || raw;
 }
 
 async function searchEngine(url: string) {
-  const response = await fetch(url, { cache: 'no-store', headers: { 'user-agent': UA, accept: 'text/html,*/*;q=0.8', 'accept-language': 'fa-IR,fa;q=0.9,en;q=0.6' } });
+  const response = await fetch(url, {
+    cache: 'no-store',
+    signal: AbortSignal.timeout(9000),
+    headers: { 'user-agent': UA, accept: 'text/html,*/*;q=0.8', 'accept-language': 'fa-IR,fa;q=0.9,en;q=0.6' },
+  });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.text();
 }
 
-function extractResults(html: string, engine: 'google' | 'bing', topic: string) {
+function extractResults(html: string, engine: 'google' | 'bing') {
   const $ = cheerio.load(html);
   const seen = new Set<string>();
-  const rows: Array<{ name: string; url: string; domain: string; description: string; known: boolean }> = [];
+  const rows: Array<{ name: string; url: string; domain: string }> = [];
   const selectors = engine === 'google' ? ['a[href]'] : ['li.b_algo h2 a', 'a[href]'];
   for (const selector of selectors) {
     $(selector).each((_, el) => {
@@ -43,58 +43,60 @@ function extractResults(html: string, engine: 'google' | 'bing', topic: string) 
       const href = a.attr('href');
       if (!href || !/^https?:\/\//i.test(href) || !domainOk(href)) return;
       const domain = hostOf(href);
-      if (!domain || domain.includes('google.') || domain.includes('bing.') || domain.includes('youtube.')) return;
-      const canonical = `https://${domain}`;
-      if (seen.has(domain)) return;
+      if (!domain || seen.has(domain)) return;
       seen.add(domain);
-      const container = a.closest('div,li').first();
-      const text = container.text().replace(/\s+/g, ' ').trim();
+      let url = `https://${domain}`;
+      try { url = new URL(href).origin; } catch {}
       const name = a.text().replace(/\s+/g, ' ').trim() || titleFromUrl(href);
-      const description = text.replace(name, '').trim().slice(0, 220);
-      rows.push({ name, url: canonical, domain, description: description || `فروشگاه یا منبع مرتبط با «${topic}»`, known: KNOWN.has(domain) });
+      rows.push({ name: name.length > 80 ? titleFromUrl(href) : name, url, domain });
     });
-    if (rows.length >= 25) break;
+    if (rows.length >= 40) break;
   }
   return rows;
+}
+
+function dedupeCandidates(items: Array<{ name: string; url: string; domain: string }>) {
+  const map = new Map<string, { name: string; url: string; domain: string }>();
+  for (const item of items) {
+    const domain = item.domain.replace(/^www\./, '').toLowerCase();
+    if (!domain || map.has(domain)) continue;
+    map.set(domain, { ...item, domain });
+  }
+  return [...map.values()];
 }
 
 export async function GET(req: NextRequest) {
   const topic = req.nextUrl.searchParams.get('q')?.trim();
   if (!topic) return NextResponse.json({ error: 'q is required' }, { status: 400 });
-  const encoded = encodeURIComponent(topic);
+  if (topic.length > 120) return NextResponse.json({ error: 'query too long' }, { status: 400 });
+
   const queries = [
     `فروشگاه ${topic} ایران`,
     `خرید ${topic} فروشگاه اینترنتی ایران`,
     `${topic} قیمت فروشگاه`,
+    `${topic} فروشنده ایران`,
   ];
   const urls = queries.flatMap((q) => [
     `https://www.google.com/search?q=${encodeURIComponent(q)}&num=20`,
     `https://www.bing.com/search?q=${encodeURIComponent(q)}&count=20`,
   ]);
-  const results = await Promise.allSettled(urls.map(searchEngine));
-  const combined = new Map<string, { name: string; url: string; domain: string; description: string; known: boolean }>();
-  results.forEach((result, index) => {
-    if (result.status !== 'fulfilled') return;
-    const engine = index % 2 === 0 ? 'google' : 'bing';
-    for (const item of extractResults(result.value, engine, topic)) {
-      if (!combined.has(item.domain)) combined.set(item.domain, item);
-    }
-  });
 
-  const sites = [...combined.values()]
-    .filter((x) => !KNOWN.has(x.domain) || !['torob.com', 'digikala.com', 'emalls.ir'].includes(x.domain))
-    .slice(0, 30)
-    .map((x, index) => ({
-      id: `discovered-${x.domain}`,
-      name: x.name.length > 80 ? x.domain : x.name,
-      domain: x.domain,
-      url: x.url,
-      logo: `https://www.google.com/s2/favicons?domain=${encodeURIComponent(x.domain)}&sz=128`,
-      description: x.description,
-      relevance: Math.max(0.45, 1 - index * 0.015),
-      enabled: false,
-      priority: 50,
-    }));
+  const fetched = await Promise.allSettled(urls.map(searchEngine));
+  const candidates = dedupeCandidates(
+    fetched.flatMap((result, index) => result.status === 'fulfilled'
+      ? extractResults(result.value, index % 2 === 0 ? 'google' : 'bing')
+      : []),
+  ).slice(0, 40);
 
-  return NextResponse.json({ topic, results: sites, engines: ['google', 'bing'], queryCount: queries.length, encoded });
+  const qualified = await Promise.all(candidates.map((candidate) => qualifyCandidate(candidate, topic)));
+  const ranked = rankSources(qualified.filter((x): x is CandidateSource => !!x), 12);
+
+  return NextResponse.json({
+    topic,
+    results: ranked.map((x) => ({ ...x, enabled: false })),
+    totalCandidates: candidates.length,
+    qualifiedCount: qualified.filter(Boolean).length,
+    engines: ['google', 'bing'],
+    queryCount: queries.length,
+  }, { headers: { 'Cache-Control': 'no-store' } });
 }
