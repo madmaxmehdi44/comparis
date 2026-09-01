@@ -10,6 +10,7 @@ const MAX_OFFERS = 30;
 const CRAWL_BUDGET_MS = 18000;
 const BLOCKED_STATUSES = new Set([401, 403, 406, 409, 429, 451]);
 const PRODUCT_HINT = /(product|item|card|tile|listing|result|price|product-item|woocommerce)/i;
+const PLAYWRIGHT_ENABLED = process.env.PLAYWRIGHT_ENABLED === 'true';
 
 function absoluteUrl(base: string, href?: string) {
   if (!href) return undefined;
@@ -60,8 +61,7 @@ function elementTitle($: cheerio.CheerioAPI, root: Element): string | undefined 
 function extractPageOffers(html: string, source: SourceDefinition, strategy: SourceStrategy, url: string, observedAt: string): Offer[] {
   const $ = cheerio.load(html); const out: Offer[] = [];
   $('script[type="application/ld+json"]').each((_, el) => { try { out.push(...jsonLdOffers(JSON.parse($(el).text()), source, strategy, url, observedAt)); } catch {} });
-  const seen = new Set(out.map((x) => `${x.title}|${x.price}|${x.url}`));
-  const roots = new Set<Element>();
+  const seen = new Set(out.map((x) => `${x.title}|${x.price}|${x.url}`)); const roots = new Set<Element>();
   $('[itemtype*="Product"], [itemscope][itemtype*="Product"], article, li, .product, .product-item, .product-card, .product-box, .item, .card').each((_, el) => { const element = el as Element; const signature = `${$(element).attr('class') ?? ''} ${$(element).attr('itemtype') ?? ''}`; if (PRODUCT_HINT.test(signature) || $(element).attr('itemtype')) roots.add(element); });
   for (const root of roots) {
     if (out.length >= MAX_OFFERS) break; const title = elementTitle($, root); const price = elementPrice($, root); if (!title || price == null || price < 10_000) continue;
@@ -111,7 +111,7 @@ export async function crawlSource(source: SourceDefinition, query: string): Prom
     attempts.push(strategy.name); const result = await tryStrategy(source, strategy, query, Math.min(strategy.timeoutMs, remaining));
     if (result.offers.length) return { ...result, latencyMs: Date.now() - started, error: attempts.length > 1 ? `fallback chain: ${attempts.join(' → ')}` : undefined };
     last = result;
-    if (strategy.kind === 'site' && remaining >= 5000) {
+    if (PLAYWRIGHT_ENABLED && strategy.kind === 'site' && remaining >= 5000) {
       const browser = await crawlWithPlaywright(source, query, Math.min(7000, CRAWL_BUDGET_MS - (Date.now() - started)));
       if (browser.offers.length) return { ...browser, latencyMs: Date.now() - started, error: `adaptive browser after: ${attempts.join(' → ')}` };
       last = browser;
