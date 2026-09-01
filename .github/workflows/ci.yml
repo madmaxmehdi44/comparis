@@ -19,7 +19,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm install
+      - run: npx playwright install chromium --with-deps
       - run: npm run build
+      - name: Playwright smoke test
+        run: node scripts/smoke-playwright.mjs
       - name: Live source smoke test
         run: node scripts/smoke-sources.mjs
       - name: Commit regenerated lockfile
