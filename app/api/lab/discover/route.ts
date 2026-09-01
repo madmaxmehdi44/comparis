@@ -23,7 +23,7 @@ function domainOk(raw: string) {
 }
 
 function dedupeCandidates(items: Array<{ title: string; url: string; domain: string }>) {
-  const map = new Map<string, { name: string; url: string; domain: string; hits: number; engines: Set<string> }>();
+  const map = new Map<string, { id: string; name: string; url: string; domain: string; hits: number; engines: Set<string> }>();
   for (const item of items) {
     if (!domainOk(item.url)) continue;
     const domain = item.domain.replace(/^www\./, '').toLowerCase();
@@ -32,7 +32,14 @@ function dedupeCandidates(items: Array<{ title: string; url: string; domain: str
       current.hits += 1;
       current.engines.add(item.domain);
     } else {
-      map.set(domain, { name: item.title, url: item.url, domain, hits: 1, engines: new Set([item.domain]) });
+      map.set(domain, {
+        id: `discovered:${domain}`,
+        name: item.title,
+        url: item.url,
+        domain,
+        hits: 1,
+        engines: new Set([item.domain]),
+      });
     }
   }
   return [...map.values()].map((x) => ({
