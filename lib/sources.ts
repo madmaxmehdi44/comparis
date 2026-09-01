@@ -28,18 +28,9 @@ function siteStrategies(siteSearch: (query: string) => string, site: string): re
 }
 
 export const SOURCES: readonly SourceDefinition[] = [
-  {
-    id: 'torob', name: 'ترب',
-    strategies: siteStrategies((x) => `https://torob.com/search/?query=${q(x)}`, 'torob.com'),
-  },
-  {
-    id: 'digikala', name: 'دیجی‌کالا',
-    strategies: siteStrategies((x) => `https://www.digikala.com/search/?q=${q(x)}`, 'digikala.com'),
-  },
-  {
-    id: 'emalls', name: 'ایمالز',
-    strategies: siteStrategies((x) => `https://emalls.ir/Search.aspx?Search=${q(x)}`, 'emalls.ir'),
-  },
+  { id: 'torob', name: 'ترب', strategies: siteStrategies((x) => `https://torob.com/search/?query=${q(x)}`, 'torob.com') },
+  { id: 'digikala', name: 'دیجی‌کالا', strategies: siteStrategies((x) => `https://www.digikala.com/search/?q=${q(x)}`, 'digikala.com') },
+  { id: 'emalls', name: 'ایمالز', strategies: siteStrategies((x) => `https://emalls.ir/Search.aspx?Search=${q(x)}`, 'emalls.ir') },
 ] as const;
 
 export function normalizeDigits(input: string): string {
@@ -48,18 +39,67 @@ export function normalizeDigits(input: string): string {
     .replace(/[٠-٩]/g, (c) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(c)));
 }
 
-export function parsePrice(text: string): number | undefined {
-  const normalized = normalizeDigits(text).replace(/[٬،]/g, ',');
-  const match = normalized.match(/\d[\d\s.,]*/);
-  if (!match) return undefined;
-  const compact = match[0].replace(/[\s,]/g, '');
-  const value = Number(compact);
-  if (!Number.isFinite(value) || value <= 0) return undefined;
+export function normalizeText(input: string): string {
+  return normalizeDigits(input)
+    .replace(/[\u200c\u200d\u200f\ufeff]/g, ' ')
+    .replace(/[يى]/g, 'ی')
+    .replace(/ك/g, 'ک')
+    .replace(/[ۀة]/g, 'ه')
+    .replace(/[أإٱ]/g, 'ا')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
-  const lowered = normalized.toLowerCase();
-  const explicitlyToman = /تومان|تومن|toman/.test(lowered);
-  const explicitlyRial = /ریال|rial|irr/.test(lowered);
-  if (explicitlyRial && !explicitlyToman) return Math.round(value / 10);
-  if (explicitlyToman) return Math.round(value);
-  return value > 100_000 ? Math.round(value / 10) : Math.round(value);
+function numericToken(raw: string): number | undefined {
+  let value = raw.replace(/\s/g, '');
+  if (!value) return undefined;
+
+  const commaGroups = value.split(',');
+  const dotGroups = value.split('.');
+  if (commaGroups.length > 1 && commaGroups.slice(1).every((x) => /^\d{3}$/.test(x))) {
+    value = commaGroups.join('');
+  } else if (dotGroups.length > 1 && dotGroups.slice(1).every((x) => /^\d{3}$/.test(x))) {
+    value = dotGroups.join('');
+  } else {
+    value = value.replace(/,/g, '');
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+export function parsePrice(text: string): number | undefined {
+  const normalized = normalizeText(text);
+  const compact = normalized.replace(/\u00a0/g, ' ');
+  const lowered = compact.toLowerCase();
+
+  const currencyPattern = /([\d][\d\s,\.]*)(?:\s*)(تومان|تومن|ریال|toman|rial|irr)\b/gi;
+  const currencyMatches = [...compact.matchAll(currencyPattern)];
+  if (currencyMatches.length) {
+    const preferred = currencyMatches.find((m) => /تومان|تومن|toman/i.test(m[2])) ?? currencyMatches[0];
+    const parsed = numericToken(preferred[1]);
+    if (parsed === undefined) return undefined;
+    return /ریال|rial|irr/i.test(preferred[2]) && !/تومان|تومن|toman/i.test(preferred[2])
+      ? Math.round(parsed / 10)
+      : Math.round(parsed);
+  }
+
+  const labeled = compact.match(/(?:قیمت|قیمت نهایی|مبلغ|فروش)\s*[:\-]?\s*([\d][\d\s,\.]{2,})/i);
+  if (labeled) {
+    const parsed = numericToken(labeled[1]);
+    if (parsed !== undefined && parsed >= 10_000) return Math.round(parsed);
+  }
+
+  const bare = compact.match(/(?<![\w])\d[\d\s,\.]{3,}(?![\w])/g) ?? [];
+  const candidates = bare
+    .map(numericToken)
+    .filter((n): n is number => n !== undefined && n >= 10_000 && n <= 999_999_999_999);
+  if (!candidates.length) return undefined;
+
+  const hasPriceContext = /قیمت|مبلغ|فروش|خرید|تومان|تومن|ریال|price|irr|irt|rial|toman/i.test(lowered);
+  if (hasPriceContext) return Math.round(Math.min(...candidates));
+
+  // Without currency/context, only accept a value large enough to plausibly be a retail price.
+  // This avoids treating common model numbers such as 5070 or 16GB capacities as prices.
+  return Math.round(Math.min(...candidates.filter((n) => n >= 100_000)) || 0) || undefined;
 }
