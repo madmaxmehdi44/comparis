@@ -12,3 +12,5 @@ export const PLAYWRIGHT_LAB_MODES = [
   { id: 'click-and-pagination', label: 'Click / Pagination', description: 'تست locator برای next/page navigation', api: 'locator.click + waitForLoadState' },
   { id: 'full-diagnostics', label: 'Full Diagnostics', description: 'نمای کلی DOM، کنترل‌ها، frame و resource errors', api: 'getByRole + locator + content' },
 ] as const;
+
+export type PlaywrightLabMode = (typeof PLAYWRIGHT_LAB_MODES)[number]['id'];
