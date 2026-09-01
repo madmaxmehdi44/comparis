@@ -23,6 +23,12 @@ export interface SourceResult {
   offers: Offer[];
   latencyMs: number;
   error?: string;
+  diagnostics?: {
+    finalUrl?: string;
+    title?: string;
+    requests?: string[];
+    responses?: Array<{ url: string; status: number; type: string }>;
+  };
 }
 
 export interface ComparisonGroup {
