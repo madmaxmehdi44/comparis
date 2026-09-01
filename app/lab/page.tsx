@@ -4,6 +4,20 @@ import { FormEvent, useMemo, useState } from 'react';
 import type { SourceResult } from '@/lib/types';
 import { SOURCES } from '@/lib/sources';
 
+type DiscoveredSite = {
+  id: string;
+  name: string;
+  domain: string;
+  url: string;
+  logo: string;
+  description: string;
+  relevance: number;
+  enabled: boolean;
+  priority: number;
+};
+
+const statusLabel: Record<string, string> = { fresh: 'زنده', blocked: 'مسدود', failed: 'خطا', stale: 'Timeout' };
+
 export default function LabPage() {
   const [query, setQuery] = useState('RTX 5070 Ti 16GB');
   const [site, setSite] = useState('all');
@@ -21,13 +35,19 @@ export default function LabPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
+  const [discoveryTopic, setDiscoveryTopic] = useState('کارت گرافیک');
+  const [discovered, setDiscovered] = useState<DiscoveredSite[]>([]);
+  const [discoverBusy, setDiscoverBusy] = useState(false);
+  const [discoverError, setDiscoverError] = useState('');
+  const [selectedDomains, setSelectedDomains] = useState<Set<string>>(new Set());
+
   const strategyOptions = useMemo(() => {
     const source = SOURCES.find((x) => x.id === site);
     return source?.strategies ?? [
-      { name: 'search', method: 'http', timeoutMs: 6500 },
-      { name: 'search-normalized', method: 'http', timeoutMs: 6500 },
-      { name: 'indexed-search-google', method: 'search', timeoutMs: 7500 },
-      { name: 'indexed-search-bing', method: 'search', timeoutMs: 7500 },
+      { name: 'direct-search', method: 'http', timeoutMs: 6500 },
+      { name: 'normalized-search', method: 'http', timeoutMs: 6500 },
+      { name: 'google-index', method: 'search', timeoutMs: 7500 },
+      { name: 'bing-index', method: 'search', timeoutMs: 7500 },
     ];
   }, [site]);
 
@@ -51,13 +71,69 @@ export default function LabPage() {
     } finally { setBusy(false); }
   }
 
+  async function discoverSites(e: FormEvent) {
+    e.preventDefault();
+    const topic = discoveryTopic.trim();
+    if (!topic || discoverBusy) return;
+    setDiscoverBusy(true); setDiscoverError('');
+    try {
+      const response = await fetch(`/api/lab/discover?q=${encodeURIComponent(topic)}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? 'Discovery failed');
+      const sites = (data.results ?? []) as DiscoveredSite[];
+      setDiscovered(sites);
+      setSelectedDomains(new Set(sites.filter((x) => x.enabled).map((x) => x.domain)));
+    } catch (err) {
+      setDiscoverError(err instanceof Error ? err.message : 'خطای کشف سایت‌ها');
+      setDiscovered([]);
+    } finally { setDiscoverBusy(false); }
+  }
+
+  function toggle(domain: string) {
+    setSelectedDomains((current) => {
+      const next = new Set(current);
+      if (next.has(domain)) next.delete(domain); else next.add(domain);
+      return next;
+    });
+  }
+
+  function selectAll() { setSelectedDomains(new Set(discovered.map((x) => x.domain))); }
+  function clearAll() { setSelectedDomains(new Set()); }
+
+  const selectedCount = selectedDomains.size;
+
   return (
     <main className="shell">
       <header className="hero">
         <div className="eyebrow">CRAWLER LAB</div>
-        <h1>آزمایشگاه واکشی و اسکرپ</h1>
-        <p>هر الگوریتم را جداگانه یا به‌صورت زنجیره‌ای روی همه منابع و سایت دستی تست کن.</p>
+        <h1>آزمایشگاه واکشی، کشف و اسکرپ</h1>
+        <p>هم strategyها را تست کن، هم برای هر موضوع فروشگاه‌های مرتبط را کشف و مدیریت کن.</p>
       </header>
+
+      <section className="discover-panel">
+        <div className="discover-head">
+          <div><div className="eyebrow">SOURCE DISCOVERY</div><h2>کشف منابع مرتبط</h2><p>موضوع را وارد کن تا منابع ایرانی مرتبط از چند موتور جست‌وجو استخراج شوند.</p></div>
+          <div className="discover-actions"><button type="button" className="secondary" onClick={selectAll} disabled={!discovered.length}>انتخاب همه</button><button type="button" className="secondary" onClick={clearAll} disabled={!selectedCount}>حذف انتخاب</button></div>
+        </div>
+        <form className="discover-search" onSubmit={discoverSites}>
+          <input value={discoveryTopic} onChange={(e) => setDiscoveryTopic(e.target.value)} placeholder="مثلاً لپ‌تاپ گیمینگ، موبایل، مانیتور" />
+          <button disabled={discoverBusy || !discoveryTopic.trim()}>{discoverBusy ? 'در حال کشف…' : 'کشف سایت‌ها'}</button>
+        </form>
+        {discoverError && <div className="laberror">{discoverError}</div>}
+        <div className="discover-meta"><span>{discovered.length ? `${discovered.length} سایت پیدا شد` : 'هنوز جست‌وجویی انجام نشده'}</span><b>{selectedCount} فعال برای جست‌وجو</b></div>
+        <div className="discover-grid">
+          {discovered.map((item) => {
+            const active = selectedDomains.has(item.domain);
+            return <article className={`discover-card ${active ? 'active' : ''}`} key={item.id}>
+              <div className="discover-top"><img src={item.logo} alt="" width={44} height={44} onError={(e) => { e.currentTarget.style.visibility = 'hidden'; }} /><div className="discover-score">{Math.round(item.relevance * 100)}٪</div></div>
+              <h3>{item.name}</h3>
+              <div className="discover-domain">{item.domain}</div>
+              <p>{item.description}</p>
+              <div className="discover-footer"><button type="button" className={active ? 'activeBtn' : ''} onClick={() => toggle(item.domain)}>{active ? 'فعال' : 'غیرفعال'}</button><a href={item.url} target="_blank" rel="noreferrer">مشاهده سایت</a></div>
+            </article>;
+          })}
+        </div>
+      </section>
 
       <form className="labform" onSubmit={run}>
         <label>عبارت جست‌وجو<input value={query} onChange={(e) => setQuery(e.target.value)} /></label>
@@ -81,10 +157,7 @@ export default function LabPage() {
       <section className="labresults">
         {results.map((r) => (
           <article className="labcard" key={r.id}>
-            <div className="grouphead">
-              <div><div className="source">{r.name} · {r.method}</div><div className="grouptitle">{r.status}</div></div>
-              <div className="meta">{r.latencyMs}ms · {r.offers.length} offer</div>
-            </div>
+            <div className="grouphead"><div><div className="source">{r.name} · {r.method}</div><div className="grouptitle">{statusLabel[r.status] ?? r.status}</div></div><div className="meta">{r.latencyMs}ms · {r.offers.length} offer</div></div>
             {r.error && <div className="laberror inline">{r.error}</div>}
             <div className="offers">{r.offers.map((o, i) => <a className="offer" key={`${o.url}-${i}`} href={o.url} target="_blank" rel="noreferrer"><span><b>{o.source}</b><small>{o.method} · {Math.round(o.confidence * 100)}٪</small></span><strong>{o.price ? new Intl.NumberFormat('fa-IR').format(o.price) + ' تومان' : '—'}</strong></a>)}</div>
           </article>
