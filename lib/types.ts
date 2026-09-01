@@ -1,4 +1,4 @@
-export type SourceStatus = 'fresh' | 'stale' | 'blocked' | 'failed';
+export type SourceStatus = 'fresh' | 'stale' | 'blocked' | 'failed' | 'partial';
 export type RetrievalMethod = 'api' | 'feed' | 'http' | 'browser' | 'search';
 
 export interface Offer {
@@ -27,7 +27,7 @@ export interface SourceResult {
     finalUrl?: string;
     title?: string;
     requests?: string[];
-    responses?: Array<{ url: string; status: number; type: string }>;
+    responses?: Array<{ url: string; status: number; type?: string }>;
   };
 }
 
