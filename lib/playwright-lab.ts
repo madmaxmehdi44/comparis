@@ -2,7 +2,7 @@ import { chromium, type BrowserContext, type Page } from 'playwright';
 import { PLAYWRIGHT_LAB_MODES } from './playwright-modes';
 
 export type PlaywrightLabMode = (typeof PLAYWRIGHT_LAB_MODES)[number]['id'];
-export interface PlaywrightLabOptions { url: string; query?: string; mode: PlaywrightLabMode; timeoutMs: number; selector?: string; waitFor?: string; headless?: boolean; mobile?: boolean; locale?: string; timezoneId?: string; colorScheme?: 'light' | 'dark'; maxItems?: number; }
+export interface PlaywrightLabOptions { url: string; query?: string; mode: PlaywrightLabMode; timeoutMs: number; selector?: string; waitFor?: string; headless?: boolean; mobile?: boolean; locale?: string; timezoneId?: string; colorScheme?: 'light' | 'dark'; screenshot?: boolean; maxItems?: number; }
 export interface PlaywrightLabResult { mode: PlaywrightLabMode; url: string; finalUrl: string; title: string; durationMs: number; status: 'success' | 'partial' | 'failed'; details: Record<string, unknown>; errors: string[]; }
 
 const blockedHosts = new Set(['localhost', '127.0.0.1', '0.0.0.0']);
