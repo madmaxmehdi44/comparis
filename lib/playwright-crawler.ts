@@ -1,4 +1,5 @@
 import * as cheerio from 'cheerio';
+import type { Browser } from 'playwright';
 import type { Element } from 'domhandler';
 import type { Offer, SourceResult } from './types';
 import type { SourceDefinition } from './sources';
@@ -62,7 +63,7 @@ export async function crawlWithPlaywright(source: SourceDefinition, query: strin
   const started = Date.now();
   const target = source.strategies[0]?.buildUrl(query);
   if (!target) return { id: source.id, name: source.name, status: 'failed', method: 'browser', offers: [], latencyMs: 0, error: 'no source URL' };
-  let browser: { close: () => Promise<void> } | undefined;
+  let browser: Browser | undefined;
   try {
     const { chromium } = await import('playwright');
     browser = await chromium.launch({ headless: true });
