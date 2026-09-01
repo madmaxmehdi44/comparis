@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { crawlAll } from '@/lib/crawler';
+import { crawlAll, crawlSource } from '@/lib/crawler';
 import { buildComparisons } from '@/lib/comparison';
 import { SOURCES } from '@/lib/sources';
 import { parseDiscoveredSources } from '@/lib/discovered-sources';
@@ -15,7 +15,9 @@ export async function GET(req: NextRequest) {
   const discovered = parseDiscoveredSources(req.nextUrl.searchParams.get('sources'));
   const registry = [...SOURCES, ...discovered];
   const unique = [...new Map(registry.map((source) => [source.id, source])).values()];
-  const sources = await Promise.all(unique.map((source) => import('@/lib/crawler').then(({ crawlSource }) => crawlSource(source, query))));
+  const sources = unique.length === SOURCES.length && !discovered.length
+    ? await crawlAll(query)
+    : await Promise.all(unique.map((source) => crawlSource(source, query)));
   const offers = sources.flatMap((source) => source.offers);
   const groups = buildComparisons(offers);
   const results = groups.flatMap((group) => group.offers).sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity));
