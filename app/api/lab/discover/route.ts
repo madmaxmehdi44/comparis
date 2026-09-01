@@ -22,7 +22,7 @@ function domainOk(raw: string) {
   return !!host && !host.endsWith('.local') && !/^\d+(?:\.\d+){3}$/.test(host) && !host.includes(':');
 }
 
-function dedupeCandidates(items: Array<{ name: string; url: string; domain: string; searchPresence?: number }>) {
+function dedupeCandidates(items: Array<{ title: string; url: string; domain: string }>) {
   const map = new Map<string, { name: string; url: string; domain: string; hits: number; engines: Set<string> }>();
   for (const item of items) {
     if (!domainOk(item.url)) continue;
@@ -32,10 +32,13 @@ function dedupeCandidates(items: Array<{ name: string; url: string; domain: stri
       current.hits += 1;
       current.engines.add(item.domain);
     } else {
-      map.set(domain, { name: item.name, url: item.url, domain, hits: 1, engines: new Set([item.domain]) });
+      map.set(domain, { name: item.title, url: item.url, domain, hits: 1, engines: new Set([item.domain]) });
     }
   }
-  return [...map.values()].map((x) => ({ ...x, searchPresence: Math.min(1, 0.25 + x.hits * 0.09 + (x.engines.size - 1) * 0.12) }));
+  return [...map.values()].map((x) => ({
+    ...x,
+    searchPresence: Math.min(1, 0.25 + x.hits * 0.09 + (x.engines.size - 1) * 0.12),
+  }));
 }
 
 async function mapLimit<T, R>(items: T[], concurrency: number, worker: (item: T) => Promise<R>): Promise<R[]> {
