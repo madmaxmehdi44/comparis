@@ -5,10 +5,12 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "playwright:install": "playwright install chromium"
   },
   "dependencies": {
     "next": "16.1.1",
+    "playwright": "1.62.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "cheerio": "1.1.2",
