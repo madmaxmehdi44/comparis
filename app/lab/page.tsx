@@ -7,7 +7,7 @@ import { SOURCES } from '@/lib/sources';
 type DiscoveredSite = {
   id: string; name: string; domain: string; url: string; logo: string; description: string;
   relevance: number; enabled: boolean; priority: number; reasons?: string[];
-  signals?: { topic: number; commerce: number; productSchema: number; price: number; persian: number; reliability: number };
+  signals?: { topic: number; commerce: number; productSchema: number; price: number; persian: number; reliability: number; searchPresence?: number; catalog?: number };
 };
 
 const ACTIVE_KEY = 'comparis:active-sources';
@@ -28,6 +28,7 @@ export default function LabPage() {
   const [results, setResults] = useState<SourceResult[]>([]); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   const [discoveryTopic, setDiscoveryTopic] = useState('کارت گرافیک'); const [discovered, setDiscovered] = useState<DiscoveredSite[]>([]);
   const [selectedDomains, setSelectedDomains] = useState<Set<string>>(new Set()); const [discoverBusy, setDiscoverBusy] = useState(false); const [discoverError, setDiscoverError] = useState(''); const [testingDomain, setTestingDomain] = useState<string | null>(null);
+  const [discoveryStats, setDiscoveryStats] = useState({ candidates: 0, qualified: 0, rejected: 0 });
 
   useEffect(() => { try { const registry = localStorage.getItem(REGISTRY_KEY); const active = localStorage.getItem(ACTIVE_KEY); if (registry) setDiscovered(JSON.parse(registry)); if (active) setSelectedDomains(new Set((JSON.parse(active) as DiscoveredSite[]).map((x) => x.domain))); } catch {} }, []);
   useEffect(() => { try { localStorage.setItem(REGISTRY_KEY, JSON.stringify(discovered)); localStorage.setItem(ACTIVE_KEY, JSON.stringify(discovered.filter((x) => selectedDomains.has(x.domain)).map(({ id, name, domain, url, priority }) => ({ id, name, domain, url, priority })))); } catch {} }, [discovered, selectedDomains]);
@@ -41,7 +42,8 @@ export default function LabPage() {
 
   async function discoverSites(e: FormEvent) {
     e.preventDefault(); const topic = discoveryTopic.trim(); if (!topic || discoverBusy) return; setDiscoverBusy(true); setDiscoverError('');
-    try { const response = await fetch(`/api/lab/discover?q=${encodeURIComponent(topic)}`); const data = await response.json(); if (!response.ok) throw new Error(data.error ?? 'Discovery failed'); const incoming = (data.results ?? []) as DiscoveredSite[]; setDiscovered((current) => { const merged = new Map(current.map((x) => [x.domain, x])); for (const item of incoming) { const previous = merged.get(item.domain); merged.set(item.domain, { ...item, enabled: previous?.enabled ?? false, priority: previous?.priority ?? item.priority }); } return [...merged.values()].sort((a, b) => b.relevance - a.relevance); }); } catch (err) { setDiscoverError(err instanceof Error ? err.message : 'خطای کشف سایت‌ها'); setDiscovered([]); } finally { setDiscoverBusy(false); }
+    try { const response = await fetch(`/api/lab/discover?q=${encodeURIComponent(topic)}`); const data = await response.json(); if (!response.ok) throw new Error(data.error ?? 'Discovery failed'); setDiscoveryStats({ candidates: data.totalCandidates ?? 0, qualified: data.qualifiedCount ?? 0, rejected: data.rejectedCount ?? 0 }); const incoming = (data.results ?? []) as DiscoveredSite[]; setDiscovered((current) => { const merged = new Map(current.map((x) => [x.domain, x])); for (const item of incoming) { const previous = merged.get(item.domain); merged.set(item.domain, { ...item, enabled: previous?.enabled ?? false, priority: previous?.priority ?? item.priority }); } return [...merged.values()].sort((a, b) => b.relevance - a.relevance); }); }
+    catch (err) { setDiscoverError(err instanceof Error ? err.message : 'خطای کشف سایت‌ها'); setDiscovered([]); } finally { setDiscoverBusy(false); }
   }
   function toggle(domain: string) { setSelectedDomains((current) => { const next = new Set(current); next.has(domain) ? next.delete(domain) : next.add(domain); return next; }); }
   function selectAll() { setSelectedDomains(new Set(discovered.map((x) => x.domain))); }
@@ -53,15 +55,15 @@ export default function LabPage() {
   return <main className="shell">
     <header className="hero"><div className="eyebrow">CRAWLER LAB</div><h1>آزمایشگاه واکشی، کشف و اسکرپ</h1><p>منابع را کشف، ارزیابی، رتبه‌بندی و برای جست‌وجوی اصلی فعال کن.</p></header>
     <section className="discover-panel">
-      <div className="discover-head"><div><div className="eyebrow">SOURCE DISCOVERY</div><h2>کشف و رتبه‌بندی منابع</h2><p>فقط candidateها نمایش داده نمی‌شوند؛ ابتدا homepage آن‌ها از نظر ارتباط موضوعی، نشانه فروشگاهی، Product schema، قیمت، محتوای فارسی و سرعت پاسخ ارزیابی می‌شود.</p></div><div className="discover-actions"><button type="button" className="secondary" onClick={selectAll} disabled={!discovered.length}>فعال‌سازی همه</button><button type="button" className="secondary" onClick={clearAll} disabled={!selectedDomains.size}>غیرفعال‌سازی همه</button></div></div>
+      <div className="discover-head"><div><div className="eyebrow">SOURCE DISCOVERY</div><h2>کشف و رتبه‌بندی منابع</h2><p>candidateهای خام حذف می‌شوند؛ homepage هر دامنه از نظر ارتباط موضوعی، فروشگاهی بودن، Product schema، قیمت، کاتالوگ، محتوای فارسی و قابلیت crawl ارزیابی می‌شود.</p></div><div className="discover-actions"><button type="button" className="secondary" onClick={selectAll} disabled={!discovered.length}>فعال‌سازی همه</button><button type="button" className="secondary" onClick={clearAll} disabled={!selectedDomains.size}>غیرفعال‌سازی همه</button></div></div>
       <form className="discover-search" onSubmit={discoverSites}><input value={discoveryTopic} onChange={(e) => setDiscoveryTopic(e.target.value)} placeholder="مثلاً لپ‌تاپ گیمینگ، موبایل، قطعات خودرو" /><button disabled={discoverBusy || !discoveryTopic.trim()}>{discoverBusy ? 'در حال ارزیابی…' : 'کشف و رتبه‌بندی'}</button></form>
       {discoverError && <div className="laberror">{discoverError}</div>}
-      <div className="discover-meta"><span>{discovered.length ? `${discovered.length} منبع واجد شرایط` : 'هنوز جست‌وجویی انجام نشده'}</span><b>{selectedDomains.size} منبع فعال</b></div>
+      <div className="discover-meta"><span>{discoveryStats.candidates ? `${discoveryStats.candidates} candidate → ${discoveryStats.qualified} واجد شرایط → ${discoveryStats.rejected} رد شده` : (discovered.length ? `${discovered.length} منبع واجد شرایط` : 'هنوز جست‌وجویی انجام نشده')}</span><b>{selectedDomains.size} منبع فعال</b></div>
       <div className="discover-grid">{discovered.map((item) => { const active = selectedDomains.has(item.domain); return <article className={`discover-card ${active ? 'active' : ''}`} key={item.domain}>
         <div className="discover-top"><img src={item.logo} alt="" width={46} height={46} onError={(e) => { e.currentTarget.style.visibility = 'hidden'; }} /><div className="discover-score">{Math.round(item.relevance * 100)}٪</div></div>
         <h3>{item.name}</h3><div className="discover-domain">{item.domain}</div><p>{item.description}</p>
-        {item.reasons?.length ? <div className="reasonRow">{item.reasons.slice(0, 3).map((r) => <span key={r}>{r}</span>)}</div> : null}
-        <div className="signalGrid">{item.signals ? <><span>موضوع <b>{Math.round(item.signals.topic * 100)}٪</b></span><span>فروش <b>{Math.round(item.signals.commerce * 100)}٪</b></span><span>محصول <b>{Math.round(item.signals.productSchema * 100)}٪</b></span><span>قیمت <b>{Math.round(item.signals.price * 100)}٪</b></span></> : null}</div>
+        {item.reasons?.length ? <div className="reasonRow">{item.reasons.slice(0, 4).map((r) => <span key={r}>{r}</span>)}</div> : null}
+        {item.signals ? <div className="signalGrid"><span>موضوع <b>{Math.round(item.signals.topic * 100)}٪</b></span><span>فروش <b>{Math.round(item.signals.commerce * 100)}٪</b></span><span>محصول <b>{Math.round(item.signals.productSchema * 100)}٪</b></span><span>قیمت <b>{Math.round(item.signals.price * 100)}٪</b></span><span>کاتالوگ <b>{Math.round((item.signals.catalog ?? 0) * 100)}٪</b></span><span>crawl <b>{Math.round(item.signals.reliability * 100)}٪</b></span></div> : null}
         <div className="priority"><span>اولویت</span><b>{item.priority}</b><button type="button" onClick={() => changePriority(item.domain, 10)}>+</button><button type="button" onClick={() => changePriority(item.domain, -10)}>−</button></div>
         <div className="discover-footer"><button type="button" className={active ? 'activeBtn' : ''} onClick={() => toggle(item.domain)}>{active ? 'فعال' : 'غیرفعال'}</button><button type="button" className="testBtn" disabled={testingDomain === item.domain} onClick={() => testSource(item)}>{testingDomain === item.domain ? 'تست…' : 'تست'}</button><a href={item.url} target="_blank" rel="noreferrer">سایت</a><button type="button" className="forgetBtn" onClick={() => forget(item.domain)}>حذف</button></div>
       </article>; })}</div>
