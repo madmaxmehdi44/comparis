@@ -1,4 +1,4 @@
-export type SourceId = 'torob' | 'digikala' | 'emalls' | 'fafait' | 'markazi' | 'radincomputer' | 'darjaonline' | 'pasargadtech' | 'irsystech' | 'spotibyte';
+export type SourceId = string;
 export type RetrievalMethod = 'http' | 'search';
 
 export interface SourceStrategy {
@@ -31,13 +31,18 @@ export const SOURCES: readonly SourceDefinition[] = [
   { id: 'torob', name: 'ترب', strategies: siteStrategies((x) => `https://torob.com/search/?query=${q(x)}`, 'torob.com') },
   { id: 'digikala', name: 'دیجی‌کالا', strategies: siteStrategies((x) => `https://www.digikala.com/search/?q=${q(x)}`, 'digikala.com') },
   { id: 'emalls', name: 'ایمالز', strategies: siteStrategies((x) => `https://emalls.ir/Search.aspx?Search=${q(x)}`, 'emalls.ir') },
-  { id: 'fafait', name: 'فافا', strategies: siteStrategies((x) => `https://fafait.net/search?query=${q(x)}`, 'fafait.net') },
+  { id: 'fafait', name: 'شهر فافا', strategies: siteStrategies((x) => `https://fafait.net/?s=${q(x)}`, 'fafait.net') },
   { id: 'markazi', name: 'مارکزی', strategies: siteStrategies((x) => `https://www.markazi.co/?s=${q(x)}`, 'markazi.co') },
   { id: 'radincomputer', name: 'رادین کامپیوتر', strategies: siteStrategies((x) => `https://radincomputer.com/?s=${q(x)}`, 'radincomputer.com') },
-  { id: 'darjaonline', name: 'درجا آنلاین', strategies: siteStrategies((x) => `https://www.darjaonline.ir/?s=${q(x)}`, 'darjaonline.ir') },
-  { id: 'pasargadtech', name: 'پاسارگاد تک', strategies: siteStrategies((x) => `https://www.pasargadtech.ir/search?q=${q(x)}`, 'pasargadtech.ir') },
-  { id: 'irsystech', name: 'ایران سیستم', strategies: siteStrategies((x) => `https://irsystech.ir/?s=${q(x)}`, 'irsystech.ir') },
-  { id: 'spotibyte', name: 'اسپاتی‌بایت', strategies: siteStrategies((x) => `https://spotibyte.com/?s=${q(x)}`, 'spotibyte.com') },
+  { id: 'darja', name: 'درجا آنلاین', strategies: siteStrategies((x) => `https://darja.online/?s=${q(x)}`, 'darja.online') },
+  { id: 'rightech', name: 'رایتک', strategies: siteStrategies((x) => `https://rightech.ir/?s=${q(x)}`, 'rightech.ir') },
+  { id: 'rayanehonline', name: 'رایانه آنلاین', strategies: siteStrategies((x) => `https://rayanehonline.com/?s=${q(x)}`, 'rayanehonline.com') },
+  { id: 'technolife', name: 'تکنولایف', strategies: siteStrategies((x) => `https://www.technolife.com/search?query=${q(x)}`, 'technolife.com') },
+  { id: 'meghdadit', name: 'مقداد آی‌تی', strategies: siteStrategies((x) => `https://www.meghdadit.com/?s=${q(x)}`, 'meghdadit.com') },
+  { id: 'pcmarkazi', name: 'کامپیوتر مرکزی', strategies: siteStrategies((x) => `https://pcmarkazi.com/?s=${q(x)}`, 'pcmarkazi.com') },
+  { id: 'irtechland', name: 'IR Tech Land', strategies: siteStrategies((x) => `https://irtechland.com/?s=${q(x)}`, 'irtechland.com') },
+  { id: 'pasargadit', name: 'پاسارگاد آی‌تی', strategies: siteStrategies((x) => `https://pasargadit.com/?s=${q(x)}`, 'pasargadit.com') },
+  { id: 'shopmit', name: 'ShopMit', strategies: siteStrategies((x) => `https://shopmit.ir/?s=${q(x)}`, 'shopmit.ir') },
 ] as const;
 
 export function normalizeDigits(input: string): string {
@@ -71,25 +76,23 @@ function numericToken(raw: string): number | undefined {
 
 export function parsePrice(text: string): number | undefined {
   const normalized = normalizeText(text);
-  const compact = normalized.replace(/\u00a0/g, ' ');
-  const lowered = compact.toLowerCase();
-  const currencyPattern = /([\d][\d\s,\.]*)(?:\s*)(تومان|تومن|ریال|toman|rial|irr)\b/gi;
-  const currencyMatches = [...compact.matchAll(currencyPattern)];
+  const currencyPattern = /([\d][\d\s,.]*)(?:\s*)(تومان|تومن|ریال|toman|rial|irr)\b/gi;
+  const currencyMatches = [...normalized.matchAll(currencyPattern)];
   if (currencyMatches.length) {
     const preferred = currencyMatches.find((m) => /تومان|تومن|toman/i.test(m[2])) ?? currencyMatches[0];
     const parsed = numericToken(preferred[1]);
     if (parsed === undefined) return undefined;
     return /ریال|rial|irr/i.test(preferred[2]) && !/تومان|تومن|toman/i.test(preferred[2]) ? Math.round(parsed / 10) : Math.round(parsed);
   }
-  const labeled = compact.match(/(?:قیمت|قیمت نهایی|مبلغ|فروش)\s*[:\-]?\s*([\d][\d\s,\.]{2,})/i);
+  const labeled = normalized.match(/(?:قیمت|قیمت نهایی|مبلغ|فروش)\s*[:\-]?\s*([\d][\d\s,.]{2,})/i);
   if (labeled) {
     const parsed = numericToken(labeled[1]);
     if (parsed !== undefined && parsed >= 10_000) return Math.round(parsed);
   }
-  const bare = compact.match(/(?<![\w])\d[\d\s,\.]{3,}(?![\w])/g) ?? [];
+  const bare = normalized.match(/(?<![\w])\d[\d\s,.]{3,}(?![\w])/g) ?? [];
   const candidates = bare.map(numericToken).filter((n): n is number => n !== undefined && n >= 10_000 && n <= 999_999_999_999);
   if (!candidates.length) return undefined;
-  const hasPriceContext = /قیمت|مبلغ|فروش|خرید|تومان|تومن|ریال|price|irr|irt|rial|toman/i.test(lowered);
+  const hasPriceContext = /قیمت|مبلغ|فروش|خرید|تومان|تومن|ریال|price|irr|irt|rial|toman/i.test(normalized);
   if (hasPriceContext) return Math.round(Math.min(...candidates));
   return Math.round(Math.min(...candidates.filter((n) => n >= 100_000)) || 0) || undefined;
 }
