@@ -17,7 +17,7 @@ export interface ProductGroup {
   identity: ProductIdentity;
 }
 
-const STOP = new Set(['گارانتی', 'اصل', 'اورجینال', 'جدید', 'فروش', 'خرید', 'قیمت', 'کالا']);
+const STOP = new Set(['گارانتی', 'اصل', 'اورجینال', 'جدید', 'فروش', 'خرید', 'قیمت', 'کالا', 'with', 'for', 'the', 'and']);
 const BRAND_RE = /\b(apple|samsung|xiaomi|huawei|asus|msi|gigabyte|lenovo|hp|dell|sony|lg|amd|intel|nvidia)\b/i;
 const SKU_RE = /\b[A-Z0-9]{3,}(?:[-_][A-Z0-9]{2,})+\b/i;
 const CAPACITY_RE = /\b\d+(?:\.\d+)?\s?(?:gb|tb|mb|گیگ|ترابایت)\b/i;
@@ -45,6 +45,7 @@ function scoreOffer(offer: Offer, group: ProductGroup): number {
   const left = identity(offer.title);
   const right = group.identity;
   if (left.sku && right.sku && left.sku === right.sku) return 1;
+  if (left.sku && right.sku && left.sku !== right.sku) return 0;
   if (left.brand && right.brand && left.brand !== right.brand) return 0;
   if (left.capacity && right.capacity && left.capacity !== right.capacity) return 0;
   const semantic = jaccard(tokens(offer.title), tokens(group.title));
@@ -65,7 +66,7 @@ export function groupOffers(offers: Offer[]): ProductGroup[] {
         best = group;
       }
     }
-    if (best && bestScore >= 0.68) {
+    if (best && bestScore >= 0.72) {
       best.offers.push(offer);
       best.confidence = Math.min(best.confidence, bestScore);
     } else {
