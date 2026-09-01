@@ -24,6 +24,9 @@ function siteStrategies(siteSearch: (query: string) => string, site: string): re
     { name: 'normalized-search', method: 'http', timeoutMs: 6500, kind: 'site', buildUrl: (x) => siteSearch(decodeURIComponent(normalized(x))) },
     { name: 'google-index', method: 'search', timeoutMs: 7500, kind: 'search-engine', buildUrl: (x) => `https://www.google.com/search?q=${q(`site:${site} ${x}`)}` },
     { name: 'bing-index', method: 'search', timeoutMs: 7500, kind: 'search-engine', buildUrl: (x) => `https://www.bing.com/search?q=${q(`site:${site} ${x}`)}` },
+    { name: 'brave-index', method: 'search', timeoutMs: 7500, kind: 'search-engine', buildUrl: (x) => `https://search.brave.com/search?q=${q(`site:${site} ${x}`)}&source=web` },
+    { name: 'duckduckgo-index', method: 'search', timeoutMs: 7500, kind: 'search-engine', buildUrl: (x) => `https://html.duckduckgo.com/html/?q=${q(`site:${site} ${x}`)}&kl=ir-fa` },
+    { name: 'yahoo-index', method: 'search', timeoutMs: 7500, kind: 'search-engine', buildUrl: (x) => `https://search.yahoo.com/search?p=${q(`site:${site} ${x}`)}&n=20` },
   ] as const;
 }
 
