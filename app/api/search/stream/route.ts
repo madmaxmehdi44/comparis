@@ -3,12 +3,29 @@ import { SOURCES } from '@/lib/sources';
 import { crawlSource } from '@/lib/crawler';
 import { buildComparisons } from '@/lib/comparison';
 import { parseDiscoveredSources } from '@/lib/discovered-sources';
+import type { SourceResult } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 25;
 
 function event(name: string, data: unknown) {
   return `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`;
+}
+
+async function safeCrawl(source: (typeof SOURCES)[number], query: string): Promise<SourceResult> {
+  try {
+    return await crawlSource(source, query);
+  } catch (error) {
+    return {
+      id: source.id,
+      name: source.name,
+      status: 'failed',
+      method: 'http',
+      offers: [],
+      latencyMs: 0,
+      error: error instanceof Error ? error.message : 'source crawl failed',
+    };
+  }
 }
 
 export async function GET(req: NextRequest) {
@@ -24,16 +41,29 @@ export async function GET(req: NextRequest) {
     async start(controller) {
       const send = (name: string, payload: unknown) => controller.enqueue(encoder.encode(event(name, payload)));
       send('start', { query, sources: unique.map(({ id, name }) => ({ id, name })) });
+
       const jobs = unique.map(async (source) => {
-        const result = await crawlSource(source, query);
+        const result = await safeCrawl(source, query);
         send('source', result);
         return result;
       });
       const results = await Promise.all(jobs);
       const offers = results.flatMap((x) => x.offers);
-      send('done', { query, sources: results, groups: buildComparisons(offers), results: offers.sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity)), completedAt: new Date().toISOString() });
+      send('done', {
+        query,
+        sources: results,
+        groups: buildComparisons(offers),
+        results: offers.sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity)),
+        completedAt: new Date().toISOString(),
+      });
       controller.close();
     },
   });
-  return new Response(stream, { headers: { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive' } });
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+    },
+  });
 }
