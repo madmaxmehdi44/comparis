@@ -1,8 +1,7 @@
-import { chromium } from 'playwright';
 import * as cheerio from 'cheerio';
 import type { Element } from 'domhandler';
 import type { Offer, SourceResult } from './types';
-import type { SourceDefinition, SourceStrategy } from './sources';
+import type { SourceDefinition } from './sources';
 import { dedupeOffers } from './match';
 import { normalizeText, parsePrice } from './sources';
 
@@ -14,7 +13,6 @@ function absoluteUrl(base: string, href?: string) {
   if (!href) return undefined;
   try { return new URL(href, base).toString(); } catch { return undefined; }
 }
-
 function availability(value: unknown): string {
   if (typeof value !== 'string') return 'unknown';
   const v = normalizeText(value).toLowerCase();
@@ -22,10 +20,7 @@ function availability(value: unknown): string {
   if (v.includes('outofstock') || v.includes('out of stock') || v.includes('ناموجود')) return 'out_of_stock';
   return 'unknown';
 }
-
-function isProductType(value: unknown): boolean {
-  return value === 'Product' || (Array.isArray(value) && value.includes('Product'));
-}
+function isProductType(value: unknown): boolean { return value === 'Product' || (Array.isArray(value) && value.includes('Product')); }
 
 function extractJsonLd(rawText: string, source: SourceDefinition, pageUrl: string, observedAt: string): Offer[] {
   const out: Offer[] = [];
@@ -46,12 +41,7 @@ function extractJsonLd(rawText: string, source: SourceDefinition, pageUrl: strin
           const offer = rawOffer as Record<string, unknown>;
           const price = parsePrice(String(offer.price ?? offer.lowPrice ?? offer.highPrice ?? ''));
           if (price == null) continue;
-          out.push({
-            sourceId: source.id, source: source.name,
-            url: absoluteUrl(pageUrl, typeof offer.url === 'string' ? offer.url : undefined) ?? pageUrl,
-            title: normalizeText(product.name), price, currency: 'IRT', availability: availability(offer.availability),
-            observedAt, status: 'fresh', method: 'browser', confidence: 0.98,
-          });
+          out.push({ sourceId: source.id, source: source.name, url: absoluteUrl(pageUrl, typeof offer.url === 'string' ? offer.url : undefined) ?? pageUrl, title: normalizeText(product.name), price, currency: 'IRT', availability: availability(offer.availability), observedAt, status: 'fresh', method: 'browser', confidence: 0.98 });
         }
       }
     }
@@ -60,39 +50,11 @@ function extractJsonLd(rawText: string, source: SourceDefinition, pageUrl: strin
 }
 
 function extractDomOffers(html: string, source: SourceDefinition, pageUrl: string, observedAt: string): Offer[] {
-  const $ = cheerio.load(html);
-  const out: Offer[] = [];
-  const seen = new Set<string>();
-  const roots = new Set<Element>();
-  $('[itemtype*="Product"], [itemscope][itemtype*="Product"], article, li, .product, .product-item, .product-card, .product-box, .item, .card').each((_, el) => {
-    const element = el as Element;
-    const signature = `${$(element).attr('class') ?? ''} ${$(element).attr('itemtype') ?? ''}`;
-    if (PRODUCT_HINT.test(signature) || $(element).attr('itemtype')) roots.add(element);
-  });
-  const titleOf = (root: Element) => [
-    $(root).find('[itemprop="name"]').first().text(),
-    $(root).find('h1,h2,h3,h4,.product-title,.product-name,.title').first().text(),
-    $(root).attr('aria-label'),
-    $(root).find('img[alt]').first().attr('alt'),
-  ].filter(Boolean).map((v) => normalizeText(String(v))).find((v) => v.length >= 5);
-  const priceOf = (root: Element) => {
-    const candidates = [
-      $(root).attr('data-price'), $(root).attr('data-product-price'),
-      $(root).find('[itemprop="price"]').first().attr('content'), $(root).find('[itemprop="price"]').first().text(),
-      $(root).find('[data-price]').first().attr('data-price'),
-      $(root).find('.price,.product-price,.price-final,.amount,.woocommerce-Price-amount,.sale-price,.regular-price').first().text(),
-      $(root).text(),
-    ].filter(Boolean) as string[];
-    for (const value of candidates) { const price = parsePrice(value); if (price != null && price >= 10_000) return price; }
-    return undefined;
-  };
-  for (const root of roots) {
-    if (out.length >= MAX_OFFERS) break;
-    const title = titleOf(root); const price = priceOf(root); if (!title || price == null) continue;
-    const href = absoluteUrl(pageUrl, $(root).find('a[href]').first().attr('href') ?? $(root).closest('a[href]').attr('href')); if (!href) continue;
-    const key = `${title}|${price}|${href}`; if (seen.has(key)) continue; seen.add(key);
-    out.push({ sourceId: source.id, source: source.name, url: href, title, price, currency: 'IRT', availability: availability($(root).text()), observedAt, status: 'fresh', method: 'browser', confidence: 0.90 });
-  }
+  const $ = cheerio.load(html); const out: Offer[] = []; const seen = new Set<string>(); const roots = new Set<Element>();
+  $('[itemtype*="Product"], [itemscope][itemtype*="Product"], article, li, .product, .product-item, .product-card, .product-box, .item, .card').each((_, el) => { const element = el as Element; const signature = `${$(element).attr('class') ?? ''} ${$(element).attr('itemtype') ?? ''}`; if (PRODUCT_HINT.test(signature) || $(element).attr('itemtype')) roots.add(element); });
+  const titleOf = (root: Element) => [$(root).find('[itemprop="name"]').first().text(), $(root).find('h1,h2,h3,h4,.product-title,.product-name,.title').first().text(), $(root).attr('aria-label'), $(root).find('img[alt]').first().attr('alt')].filter(Boolean).map((v) => normalizeText(String(v))).find((v) => v.length >= 5);
+  const priceOf = (root: Element) => { const candidates = [$(root).attr('data-price'), $(root).attr('data-product-price'), $(root).find('[itemprop="price"]').first().attr('content'), $(root).find('[itemprop="price"]').first().text(), $(root).find('[data-price]').first().attr('data-price'), $(root).find('.price,.product-price,.price-final,.amount,.woocommerce-Price-amount,.sale-price,.regular-price').first().text(), $(root).text()].filter(Boolean) as string[]; for (const value of candidates) { const price = parsePrice(value); if (price != null && price >= 10_000) return price; } return undefined; };
+  for (const root of roots) { if (out.length >= MAX_OFFERS) break; const title = titleOf(root); const price = priceOf(root); if (!title || price == null) continue; const href = absoluteUrl(pageUrl, $(root).find('a[href]').first().attr('href') ?? $(root).closest('a[href]').attr('href')); if (!href) continue; const key = `${title}|${price}|${href}`; if (seen.has(key)) continue; seen.add(key); out.push({ sourceId: source.id, source: source.name, url: href, title, price, currency: 'IRT', availability: availability($(root).text()), observedAt, status: 'fresh', method: 'browser', confidence: 0.90 }); }
   return dedupeOffers(out).slice(0, MAX_OFFERS);
 }
 
@@ -100,8 +62,9 @@ export async function crawlWithPlaywright(source: SourceDefinition, query: strin
   const started = Date.now();
   const target = source.strategies[0]?.buildUrl(query);
   if (!target) return { id: source.id, name: source.name, status: 'failed', method: 'browser', offers: [], latencyMs: 0, error: 'no source URL' };
-  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  let browser: { close: () => Promise<void> } | undefined;
   try {
+    const { chromium } = await import('playwright');
     browser = await chromium.launch({ headless: true });
     const context = await browser.newContext({ locale: 'fa-IR', viewport: { width: 1440, height: 900 }, userAgent: UA, colorScheme: 'light' });
     const page = await context.newPage();
@@ -115,12 +78,7 @@ export async function crawlWithPlaywright(source: SourceDefinition, query: strin
     const offers: Offer[] = [];
     for (const script of await page.locator('script[type="application/ld+json"]').allTextContents()) offers.push(...extractJsonLd(script, source, page.url(), observedAt));
     if (!offers.length) offers.push(...extractDomOffers(await page.content(), source, page.url(), observedAt));
-    return {
-      id: source.id, name: source.name, status: offers.length ? 'fresh' : 'failed', method: 'browser',
-      offers: dedupeOffers(offers).slice(0, MAX_OFFERS), latencyMs: Date.now() - started,
-      error: offers.length ? undefined : 'no offers extracted via Playwright',
-      diagnostics: { finalUrl: page.url(), title: await page.title(), requests: requests.slice(-50), responses: responses.slice(-50) },
-    };
+    return { id: source.id, name: source.name, status: offers.length ? 'fresh' : 'failed', method: 'browser', offers: dedupeOffers(offers).slice(0, MAX_OFFERS), latencyMs: Date.now() - started, error: offers.length ? undefined : 'no offers extracted via Playwright', diagnostics: { finalUrl: page.url(), title: await page.title(), requests: requests.slice(-50), responses: responses.slice(-50) } };
   } catch (error) {
     return { id: source.id, name: source.name, status: 'failed', method: 'browser', offers: [], latencyMs: Date.now() - started, error: error instanceof Error ? `Playwright unavailable/failed: ${error.message}` : 'Playwright failed' };
   } finally { await browser?.close().catch(() => undefined); }
